@@ -1,12 +1,18 @@
 import React from "react";
 import { View, TextInput, StyleSheet, SafeAreaView } from "react-native";
-import NavBar from "../components/NavBar"; // adjust path as needed
+import NavBar from "../components/NavBar";
+import Sidebar from "../components/SideBar";
 
 const HomeScreen = () => {
   return (
     <SafeAreaView style={styles.container}>
+      {/* Sidebar is mounted alongside everything else */}
+      <Sidebar />
+
+      {/* Top bar */}
       <NavBar title="Silens" />
 
+      {/* Writing area */}
       <TextInput
         style={styles.noteInput}
         placeholder="Start writing..."
