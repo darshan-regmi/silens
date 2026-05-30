@@ -14,31 +14,53 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Setup EAS
         uses: expo/expo-github-action@v8
         with:
-          # Pinned: eas-cli 20.0.0 has a regression in `build:list` that returns
-          # "Error: build:list command failed." with no detail. Re-evaluate when fixed.
+          # Pinned: eas-cli 20.0.0 has a regression in `build:list`. Re-evaluate later.
           eas-version: 19.1.0
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Fetch latest successful EAS build
         id: eas
         run: |
-          BUILD_JSON=$(eas build:list \
+          set +e
+          OUTPUT=$(eas build:list \
             --platform android \
             --profile production \
             --status finished \
             --limit 1 \
             --json \
-            --non-interactive)
+            --non-interactive 2>&1)
+          EC=$?
+          echo "::group::eas build:list output (exit=$EC)"
+          echo "$OUTPUT"
+          echo "::endgroup::"
+          if [ $EC -ne 0 ]; then
+            echo "::error::eas build:list failed with exit code $EC"
+            exit $EC
+          fi
 
-          APK_URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.buildUrl')
-          BUILD_ID=$(echo "$BUILD_JSON" | jq -r '.[0].id')
-          BUILD_VERSION=$(echo "$BUILD_JSON" | jq -r '.[0].appVersion')
+          APK_URL=$(echo "$OUTPUT" | jq -r '.[0].artifacts.buildUrl')
+          BUILD_ID=$(echo "$OUTPUT" | jq -r '.[0].id')
+          BUILD_VERSION=$(echo "$OUTPUT" | jq -r '.[0].appVersion')
 
           if [ "$APK_URL" = "null" ] || [ -z "$APK_URL" ]; then
-            echo "No finished EAS build found for production profile."
+            echo "::error::No finished EAS build found for production profile."
             exit 1
           fi
 
