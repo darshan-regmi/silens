@@ -22,7 +22,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # pnpm 11.3.0 requires Node >=22.13, and some transitive Expo deps import
+          # `node:sqlite` which is a built-in starting Node 22.5. Node 22 satisfies both.
+          node-version: "22"
           cache: "pnpm"
 
       - name: Install dependencies
