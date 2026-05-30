@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "dev": "EXPO_NO_TELEMETRY=1 expo start",
     "build:web": "expo export --platform web",
