@@ -40,22 +40,16 @@ jobs:
       - name: Fetch latest successful EAS build
         id: eas
         run: |
-          set +e
+          # Capture stdout only. stderr (the eas-cli update notice etc.) appears
+          # in the workflow log naturally and must NOT be merged into stdout or
+          # jq will fail parsing the JSON.
           OUTPUT=$(eas build:list \
             --platform android \
             --profile production \
             --status finished \
             --limit 1 \
             --json \
-            --non-interactive 2>&1)
-          EC=$?
-          echo "::group::eas build:list output (exit=$EC)"
-          echo "$OUTPUT"
-          echo "::endgroup::"
-          if [ $EC -ne 0 ]; then
-            echo "::error::eas build:list failed with exit code $EC"
-            exit $EC
-          fi
+            --non-interactive)
 
           APK_URL=$(echo "$OUTPUT" | jq -r '.[0].artifacts.buildUrl')
           BUILD_ID=$(echo "$OUTPUT" | jq -r '.[0].id')
@@ -63,9 +57,11 @@ jobs:
 
           if [ "$APK_URL" = "null" ] || [ -z "$APK_URL" ]; then
             echo "::error::No finished EAS build found for production profile."
+            echo "Raw eas-cli stdout: $OUTPUT"
             exit 1
           fi
 
+          echo "Found build $BUILD_ID (v$BUILD_VERSION)"
           echo "url=$APK_URL" >> $GITHUB_OUTPUT
           echo "build_id=$BUILD_ID" >> $GITHUB_OUTPUT
           echo "version=$BUILD_VERSION" >> $GITHUB_OUTPUT
