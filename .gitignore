@@ -1,37 +1,63 @@
-# dependencies
+# Dependencies
 node_modules/
+.pnpm-store/
 
-# expo
+# Expo
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# native
+# Native build outputs
+android/build/
+android/app/build/
+android/.gradle/
+ios/Pods/
+ios/build/
 *.orig.*
+
+# Native credentials — never commit these
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
+*.pem
+google-services.json
+GoogleService-Info.plist
+credentials.json
+service-account.json
 
-# metro
+# Metro
 .metro-health-check*
 
-# debug
+# Debug logs
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+pnpm-debug.*
 
-# macos
+# OS
 .DS_Store
-*.pem
+Thumbs.db
 
-# local env files
+# Env files — only .env.example is tracked
 .env
+.env.*
+!.env.example
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 
-.qodo
-.vscode
+# Editors
+.vscode/
+.idea/
+.qodo/
+*.swp
+*.swo
+*~
+
+# Lock files for package managers this project doesn't use (we use pnpm)
+package-lock.json
+yarn.lock

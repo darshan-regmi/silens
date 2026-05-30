@@ -11,18 +11,15 @@
       "ios",
       "android"
     ],
-
     "updates": {
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
       "fallbackToCacheTimeout": 0,
       "url": "https://u.expo.dev/626a0b7e-9ded-44f8-8bc4-ebf23b04e20e"
     },
-
     "assetBundlePatterns": [
       "**/*"
     ],
-
     "ios": {
       "bundleIdentifier": "com.darshanregmi.silens",
       "supportsTablet": true,
@@ -31,7 +28,6 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-
     "android": {
       "package": "com.darshanregmi.silens",
       "versionCode": 1,
@@ -40,11 +36,9 @@
         "backgroundColor": "#000000"
       }
     },
-
     "web": {
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       "expo-font",
       "expo-router",
@@ -56,20 +50,15 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200
         }
-      ]
+      ],
+      "expo-status-bar"
     ],
-
     "owner": "darshan_regmi",
-
     "extra": {
-      "router": {
-        "origin": "expo-router"
-      },
       "eas": {
         "projectId": "626a0b7e-9ded-44f8-8bc4-ebf23b04e20e"
       }
     },
-
     "runtimeVersion": "1.0.0"
   }
 }

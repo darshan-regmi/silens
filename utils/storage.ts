@@ -6,14 +6,10 @@ export interface PoemNote {
   createdAt: string;
   updatedAt: string;
 }
-import {
-  NOTION_API_TOKEN,
-  NOTION_DATABASE_ID,
-  NOTION_API_VERSION,
-  NOTION_BASE_URL,
-} from '@env';
-
-const NOTION_AUTH_TOKEN = NOTION_API_TOKEN;
+const NOTION_AUTH_TOKEN = process.env.EXPO_PUBLIC_NOTION_API_TOKEN;
+const NOTION_DATABASE_ID = process.env.EXPO_PUBLIC_NOTION_DATABASE_ID;
+const NOTION_API_VERSION = process.env.EXPO_PUBLIC_NOTION_API_VERSION;
+const NOTION_BASE_URL = process.env.EXPO_PUBLIC_NOTION_BASE_URL;
 
 if (!NOTION_AUTH_TOKEN || !NOTION_DATABASE_ID || !NOTION_API_VERSION || !NOTION_BASE_URL) {
   throw new Error("❌ Missing required Notion environment variables");
@@ -32,7 +28,7 @@ const VALID_STATUSES = ['writing', 'not published', 'Published'] as const;
 
 /* ─── Helpers ─────────────────────────────────────────────── */
 function buildProperties(note: Omit<PoemNote, 'id' | 'createdAt' | 'updatedAt'>) {
-  const safeStatus = VALID_STATUSES.includes(note.status) ? note.status : 'published';
+  const safeStatus = VALID_STATUSES.includes(note.status) ? note.status : 'not published';
 
   return {
     Title: {
@@ -42,18 +38,20 @@ function buildProperties(note: Omit<PoemNote, 'id' | 'createdAt' | 'updatedAt'>)
       rich_text: [{ text: { content: note.content } }]
     },
     Status: {
-      status: { name: safeStatus }  // ✅ this is the crucial change
+      status: { name: safeStatus }
     }
   };
 }
 
 function parsePageToNote(page: any): PoemNote {
   const p = page.properties;
+  // Notion's Status property is `.status.name`; older Select property is `.select.name` — handle both.
+  const rawStatus = p.Status?.status?.name ?? p.Status?.select?.name ?? 'not published';
   return {
     id: page.id,
     title: p.Title?.title?.[0]?.text?.content ?? '',
     content: p.Content?.rich_text?.[0]?.text?.content ?? '',
-    status: (p.Status?.select?.name as PoemNote['status']) ?? 'published',
+    status: rawStatus as PoemNote['status'],
     createdAt: page.created_time,
     updatedAt: page.last_edited_time,
   };
@@ -99,9 +97,8 @@ export const createNoteInNotion = async (
   note: Omit<PoemNote, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<PoemNote | null> => {
   try {
-    // Validate note
-    if (!note.title || !note.content) {
-      throw new Error("Note must have title and content.");
+    if (!note.title && !note.content) {
+      throw new Error("Note must have a title or content.");
     }
 
     const res: Response = await fetch(NOTION_PAGE_URL, {
@@ -109,10 +106,7 @@ export const createNoteInNotion = async (
       headers,
       body: JSON.stringify({
         parent: { database_id: NOTION_DATABASE_ID },
-        properties: {
-          Title: { title: [{ text: { content: note.title } }] },
-          Content: { rich_text: [{ text: { content: note.content } }] },
-        }
+        properties: buildProperties(note),
       }),
     });
 
@@ -123,7 +117,6 @@ export const createNoteInNotion = async (
 
     const page: any = await res.json();
 
-    // Optional: Validate response
     if (!page.id) {
       console.warn('Unexpected response:', page);
       return null;
@@ -133,7 +126,7 @@ export const createNoteInNotion = async (
       id: page.id,
       title: note.title,
       content: note.content,
-      status: note.status ?? 'published',
+      status: note.status ?? 'not published',
       createdAt: page.created_time,
       updatedAt: page.last_edited_time,
     };

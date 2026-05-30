@@ -1,6 +1,12 @@
-declare module '@env' {
-  export const NOTION_API_TOKEN: string;
-  export const NOTION_DATABASE_ID: string;
-  export const NOTION_API_VERSION: string;
-  export const NOTION_BASE_URL: string;
+declare global {
+  namespace NodeJS {
+    interface ProcessEnv {
+      EXPO_PUBLIC_NOTION_API_TOKEN: string;
+      EXPO_PUBLIC_NOTION_DATABASE_ID: string;
+      EXPO_PUBLIC_NOTION_API_VERSION: string;
+      EXPO_PUBLIC_NOTION_BASE_URL: string;
+    }
+  }
 }
+
+export {};

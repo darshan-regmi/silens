@@ -1,26 +1,40 @@
-import { Platform } from 'react-native';
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   Share,
   Alert,
-  Dimensions,
+  Animated,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Share2, BookOpen, Calendar, Clock, Edit3 } from 'lucide-react-native';
+import { Feather } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
+import * as ExpoSharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
+import { captureRef } from 'react-native-view-shot';
 import { type PoemNote } from '@/utils/storage';
-
-const { width: screenWidth } = Dimensions.get('window');
+import { useTheme } from '@/contexts/ThemeContext';
+import { useReadingSettings } from '@/contexts/ReadingSettingsContext';
+import { ThemeColors, FONTS, SPACING, RADIUS, TIMING } from '@/constants/theme';
+import ShareImageCard from '@/components/ShareImageCard';
 
 export default function PoemDetailScreen() {
   const params = useLocalSearchParams();
   const router = useRouter();
-  const [isFavorited, setIsFavorited] = useState(false);
+  const { colors } = useTheme();
+  const { resolvedFontSize, resolvedLineHeight } = useReadingSettings();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const shareCardRef = useRef<View>(null);
+  const scrollTopOpacity = useRef(new Animated.Value(0)).current;
 
   const poem: PoemNote = {
     id: params.id as string,
@@ -33,303 +47,327 @@ export default function PoemDetailScreen() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   };
 
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    });
-  };
+  const wordCount = poem.content.trim() === '' ? 0 : poem.content.trim().split(/\s+/).length;
+  const lineCount = poem.content.split('\n').filter((l) => l.trim()).length;
+  const readingMins = Math.max(1, Math.ceil(wordCount / 200));
 
-  const getWordCount = (text: string) => {
-    return text.trim() === '' ? 0 : text.trim().split(/\s+/).length;
-  };
-
-  const getLineCount = (text: string) => {
-    return text.split('\n').length;
-  };
-
-  const getReadingTime = (wordCount: number) => {
-    // Average reading speed is 200-250 words per minute
-    const wordsPerMinute = 200;
-    const minutes = Math.ceil(wordCount / wordsPerMinute);
-    return minutes === 1 ? '1 min read' : `${minutes} min read`;
-  };
-
-  const handleShare = async () => {
-    try {
-      await Share.share({
-        message: `${poem.title}\n\n${poem.content}`,
-        title: poem.title,
-      });
-    } catch (error) {
-      Alert.alert('Error', 'Failed to share the poem.');
-    }
-  };
-
-  const handleFavorite = () => {
-    setIsFavorited(!isFavorited);
-    // Here you would typically save the favorite status to storage
+  const handleBack = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.back();
   };
 
   const handleEdit = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     router.push({
       pathname: '/edit/[id]',
       params: {
         id: poem.id,
         title: poem.title,
         content: poem.content,
+        status: poem.status,
         createdAt: poem.createdAt,
         updatedAt: poem.updatedAt,
-      }
+      },
     });
   };
 
-  const wordCount = getWordCount(poem.content);
-  const lineCount = getLineCount(poem.content);
-  const readingTime = getReadingTime(wordCount);
+  const handleShareText = async () => {
+    try {
+      await Share.share({ message: `${poem.title}\n\n${poem.content}` });
+    } catch {
+      Alert.alert('Error', 'Failed to share.');
+    }
+  };
+
+  const handleShareImage = async () => {
+    try {
+      const uri = await captureRef(shareCardRef, { format: 'png', quality: 1 });
+      const safeName = poem.title
+        .replace(/[^a-z0-9\s]/gi, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .toLowerCase()
+        .slice(0, 60) || 'poem';
+      const dest = `${FileSystem.cacheDirectory}${safeName}.png`;
+      await FileSystem.copyAsync({ from: uri, to: dest });
+
+      const isAvailable = await ExpoSharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Sharing not available', 'Your device does not support sharing files.');
+        return;
+      }
+      await ExpoSharing.shareAsync(dest, { mimeType: 'image/png', dialogTitle: poem.title });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to create share image.');
+    }
+  };
+
+  const handleShare = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    Alert.alert('Share', poem.title, [
+      { text: 'Share as Image', onPress: handleShareImage },
+      { text: 'Share as Text', onPress: handleShareText },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const shouldShow = y > 250;
+    if (shouldShow !== showScrollTop) {
+      setShowScrollTop(shouldShow);
+      Animated.timing(scrollTopOpacity, {
+        toValue: shouldShow ? 1 : 0,
+        duration: TIMING.medium,
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
+  const scrollToTop = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const showEditedLabel = poem.updatedAt && poem.updatedAt !== poem.createdAt;
+  const statusLabel = poem.status === 'Published' ? 'Published' : poem.status === 'writing' ? 'Writing' : 'Not Published';
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Off-screen share card — captured by react-native-view-shot */}
+      <ShareImageCard ref={shareCardRef} poem={poem} />
+
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.backButton} 
-          onPress={() => router.back()}
+        <Pressable
+          onPress={handleBack}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
         >
-          <ArrowLeft size={24} color="#8B5A3C" strokeWidth={1.5} />
-        </TouchableOpacity>
-        
+          <Feather name="arrow-left" size={22} color={colors.ink} />
+        </Pressable>
+
         <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.actionButton} 
+          <Pressable
             onPress={handleEdit}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
           >
-            <Edit3 size={24} color="#8B5A3C" strokeWidth={1.5} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.actionButton} 
+            <Feather name="edit-2" size={20} color={colors.ink} />
+          </Pressable>
+          <Pressable
             onPress={handleShare}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
           >
-            <Share2 size={24} color="#8B5A3C" strokeWidth={1.5} />
-          </TouchableOpacity>
+            <Feather name="share" size={20} color={colors.ink} />
+          </Pressable>
         </View>
       </View>
 
-      <ScrollView 
+      <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
       >
-        {/* Poem Title */}
-        <Text style={styles.title}>{poem.title}</Text>
-
-        {/* Metadata */}
-        <View style={styles.metadata}>
-          <View style={styles.metadataRow}>
-            <Calendar size={16} color="#A0A0A0" strokeWidth={1.5} />
-            <Text style={styles.metadataText}>{formatDate(poem.createdAt)}</Text>
-          </View>
-          
-          <View style={styles.metadataRow}>
-            <Clock size={16} color="#A0A0A0" strokeWidth={1.5} />
-            <Text style={styles.metadataText}>{formatTime(poem.createdAt)}</Text>
-          </View>
-        </View>
-
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <BookOpen size={18} color="#8B5A3C" strokeWidth={1.5} />
-            <Text style={styles.statLabel}>Words</Text>
-            <Text style={styles.statValue}>{wordCount}</Text>
-          </View>
-          
-          <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Text style={styles.statIcon}>¶</Text>
-            <Text style={styles.statLabel}>Lines</Text>
-            <Text style={styles.statValue}>{lineCount}</Text>
-          </View>
-          
-          <View style={styles.statDivider} />
-          
-          <View style={styles.statItem}>
-            <Clock size={18} color="#8B5A3C" strokeWidth={1.5} />
-            <Text style={styles.statLabel}>Reading</Text>
-            <Text style={styles.statValue}>{readingTime}</Text>
-          </View>
-        </View>
-
-        {/* Poem Content */}
-        <View style={styles.contentContainer}>
-          <Text style={styles.content}>{poem.content}</Text>
-        </View>
-
-        {/* Footer Info */}
-        {poem.updatedAt !== poem.createdAt && (
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              Last edited on {formatDate(poem.updatedAt)} at {formatTime(poem.updatedAt)}
+        {/* Status badge */}
+        <View style={styles.statusRow}>
+          <View style={[styles.statusBadge, poem.status === 'Published' && styles.statusBadgePublished]}>
+            <Text style={[styles.statusText, poem.status === 'Published' && styles.statusTextPublished]}>
+              {statusLabel}
             </Text>
           </View>
+        </View>
+
+        {/* Title */}
+        <Text style={styles.title}>{poem.title}</Text>
+        <View style={styles.titleRule} />
+
+        {/* Meta */}
+        <Text style={styles.meta}>
+          {formatDate(poem.createdAt)} · {wordCount} words · {lineCount} lines · {readingMins} min
+        </Text>
+
+        {/* Stats strip */}
+        <View style={styles.statsRow}>
+          <View style={styles.statCell}>
+            <Text style={styles.statValue}>{wordCount}</Text>
+            <Text style={styles.statLabel}>Words</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statCell}>
+            <Text style={styles.statValue}>{lineCount}</Text>
+            <Text style={styles.statLabel}>Lines</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statCell}>
+            <Text style={styles.statValue}>{readingMins} min</Text>
+            <Text style={styles.statLabel}>Reading</Text>
+          </View>
+        </View>
+
+        {/* Body — uses reading settings */}
+        <Text style={[styles.body, { fontSize: resolvedFontSize, lineHeight: resolvedLineHeight }]}>
+          {poem.content}
+        </Text>
+
+        {/* Last edited */}
+        {showEditedLabel && (
+          <Text style={styles.caption}>Last edited {formatDate(poem.updatedAt)}</Text>
         )}
       </ScrollView>
+
+      {/* Scroll to top */}
+      <Animated.View style={[styles.scrollTopBtn, { opacity: scrollTopOpacity }]} pointerEvents={showScrollTop ? 'auto' : 'none'}>
+        <Pressable style={styles.scrollTopPill} onPress={scrollToTop}>
+          <Feather name="arrow-up" size={14} color={colors.onInk} />
+          <Text style={styles.scrollTopText}>Top</Text>
+        </Pressable>
+      </Animated.View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAF7F0',
-  },
-  header: {
-    marginTop: Platform.select({
-      android: 16,
-      ios: 0,
-    }),
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E8E2D5',
-  },
-  backButton: {
-    padding: 4,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 16,
-  },
-  actionButton: {
-    padding: 4,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 32,
-    paddingBottom: 40,
-  },
-  title: {
-    fontSize: 32,
-    fontFamily: 'LibreBaskerville-Bold',
-    color: '#2D2D2D',
-    lineHeight: 40,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  metadata: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 24,
-    marginBottom: 32,
-  },
-  metadataRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  metadataText: {
-    fontSize: 14,
-    fontFamily: 'LibreBaskerville-Regular',
-    color: '#A0A0A0',
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 40,
-    borderWidth: 1,
-    borderColor: '#E8E2D5',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
+const makeStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg },
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: SPACING.xl,
+      paddingTop: SPACING.xs,
+      paddingBottom: SPACING.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.hairline,
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  statItem: {
-    flex: 1,
-    alignItems: 'center',
-    gap: 8,
-  },
-  statIcon: {
-    fontSize: 18,
-    color: '#8B5A3C',
-    fontFamily: 'LibreBaskerville-Bold',
-  },
-  statLabel: {
-    fontSize: 12,
-    fontFamily: 'LibreBaskerville-Regular',
-    color: '#A0A0A0',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  statValue: {
-    fontSize: 18,
-    fontFamily: 'LibreBaskerville-Bold',
-    color: '#2D2D2D',
-  },
-  statDivider: {
-    width: 1,
-    backgroundColor: '#E8E2D5',
-    marginHorizontal: 16,
-  },
-  contentContainer: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 24,
-    marginBottom: 32,
-    borderWidth: 1,
-    borderColor: '#E8E2D5',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
+    headerActions: { flexDirection: 'row', gap: SPACING.md },
+    iconBtn: {
+      width: 38,
+      height: 38,
+      borderRadius: RADIUS.full,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  content: {
-    fontSize: 18,
-    fontFamily: 'LibreBaskerville-Regular',
-    color: '#2D2D2D',
-    lineHeight: 32,
-    textAlign: 'left',
-  },
-  footer: {
-    alignItems: 'center',
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#E8E2D5',
-  },
-  footerText: {
-    fontSize: 12,
-    fontFamily: 'LibreBaskerville-Regular',
-    color: '#A0A0A0',
-    textAlign: 'center',
-  },
-});
+    iconBtnPressed: { backgroundColor: colors.surfaceElevated },
+    scrollView: { flex: 1 },
+    scrollContent: {
+      paddingHorizontal: SPACING['2xl'],
+      paddingTop: SPACING['2xl'],
+      paddingBottom: SPACING['4xl'],
+    },
+    statusRow: {
+      alignItems: 'flex-start',
+      marginBottom: SPACING.lg,
+    },
+    statusBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: RADIUS.full,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      backgroundColor: colors.surface,
+    },
+    statusBadgePublished: {
+      borderColor: colors.accent,
+      backgroundColor: colors.accentSoft,
+    },
+    statusText: {
+      fontFamily: FONTS.regular,
+      fontSize: 11,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      color: colors.meta,
+    },
+    statusTextPublished: { color: colors.accent },
+    title: {
+      fontFamily: FONTS.bold,
+      fontSize: 36,
+      lineHeight: 44,
+      letterSpacing: -0.6,
+      color: colors.ink,
+      textAlign: 'center',
+      marginBottom: SPACING.lg,
+    },
+    titleRule: {
+      width: 32,
+      height: 2,
+      backgroundColor: colors.accent,
+      alignSelf: 'center',
+      marginBottom: SPACING.lg,
+    },
+    meta: {
+      fontFamily: FONTS.regular,
+      fontSize: 13,
+      color: colors.meta,
+      textAlign: 'center',
+      marginBottom: SPACING['3xl'],
+    },
+    statsRow: {
+      flexDirection: 'row',
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      borderRadius: RADIUS.md,
+      marginBottom: SPACING['3xl'],
+    },
+    statCell: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: SPACING.lg,
+      gap: SPACING.xs,
+    },
+    statValue: { fontFamily: FONTS.bold, fontSize: 18, color: colors.ink },
+    statLabel: {
+      fontFamily: FONTS.regular,
+      fontSize: 11,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      color: colors.meta,
+    },
+    statDivider: { width: 1, backgroundColor: colors.hairline },
+    body: {
+      fontFamily: FONTS.regular,
+      color: colors.inkSecondary,
+    },
+    caption: {
+      fontFamily: FONTS.italic,
+      fontSize: 12,
+      color: colors.meta,
+      textAlign: 'center',
+      marginTop: SPACING['3xl'],
+    },
+    scrollTopBtn: {
+      position: 'absolute',
+      bottom: 24,
+      alignSelf: 'center',
+    },
+    scrollTopPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: SPACING.xs,
+      backgroundColor: colors.ink,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: RADIUS.full,
+    },
+    scrollTopText: {
+      fontFamily: FONTS.bold,
+      fontSize: 12,
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+      color: colors.onInk,
+    },
+  });

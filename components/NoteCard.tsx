@@ -1,14 +1,18 @@
-import React from 'react';
+import React, { useRef, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
-  Share,
+  Animated,
+  Pressable,
   Alert,
+  Share,
 } from 'react-native';
-import { MoreVertical, Trash2, Share2, Edit3 } from 'lucide-react-native';
+import { Feather } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
+import { ThemeColors, FONTS, SPACING, RADIUS } from '@/constants/theme';
 import { type PoemNote } from '@/utils/storage';
 
 interface NoteCardProps {
@@ -18,29 +22,56 @@ interface NoteCardProps {
 }
 
 export default function NoteCard({ note, onDelete, onPress }: NoteCardProps) {
+  const { colors } = useTheme();
   const router = useRouter();
+  const scale = useRef(new Animated.Value(1)).current;
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const formatDate = (dateString: string) => {
+  const formatMeta = (dateString: string, content: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+    const now = new Date();
+    const diffDays = Math.floor((now.getTime() - date.getTime()) / 86400000);
+    const dateLabel =
+      diffDays === 0
+        ? 'Today'
+        : diffDays === 1
+        ? 'Yesterday'
+        : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const words = content.trim() === '' ? 0 : content.trim().split(/\s+/).length;
+    const mins = Math.max(1, Math.ceil(words / 200));
+    return `${dateLabel} · ${words} words · ${mins} min`;
   };
 
-  const getPreviewText = (content: string, maxLength: number = 150) => {
-    if (content.length <= maxLength) return content;
-    return content.slice(0, maxLength) + '...';
+  const getPreview = (content: string) => {
+    const first = content.trim().split('\n')[0] ?? '';
+    return first.length > 80 ? `"${first.slice(0, 80)}…"` : `"${first}"`;
+  };
+
+  const handlePressIn = () => {
+    Animated.spring(scale, {
+      toValue: 0.985,
+      friction: 6,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scale, {
+      toValue: 1,
+      friction: 6,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress?.();
   };
 
   const handleShare = async () => {
     try {
-      await Share.share({
-        message: `${note.title}\n\n${note.content}`,
-        title: note.title,
-      });
-    } catch (error) {
+      await Share.share({ message: `${note.title}\n\n${note.content}` });
+    } catch {
       Alert.alert('Error', 'Failed to share the poem.');
     }
   };
@@ -54,141 +85,132 @@ export default function NoteCard({ note, onDelete, onPress }: NoteCardProps) {
         content: note.content,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
-      }
+      },
     });
   };
 
   const showActionSheet = () => {
-    Alert.alert(
-      note.title,
-      'Choose an action',
-      [
-        {
-          text: 'Edit',
-          onPress: handleEdit,
-        },
-        {
-          text: 'Share',
-          onPress: handleShare,
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: onDelete,
-        },
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-      ]
-    );
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(note.title, undefined, [
+      { text: 'Edit', onPress: handleEdit },
+      { text: 'Share', onPress: handleShare },
+      { text: 'Delete', style: 'destructive', onPress: onDelete },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   return (
-    <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
-      <View style={styles.header}>
+    <Animated.View style={[styles.card, { transform: [{ scale }] }]}>
+      <Pressable
+        onPress={handlePress}
+        onLongPress={showActionSheet}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        android_ripple={{ color: colors.ripple }}
+        style={styles.pressable}
+      >
         <Text style={styles.title} numberOfLines={2}>
           {note.title}
         </Text>
-        <TouchableOpacity 
-          style={styles.menuButton} 
-          onPress={showActionSheet}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <MoreVertical size={20} color="#A0A0A0" strokeWidth={1.5} />
-        </TouchableOpacity>
-      </View>
-      
-      <Text style={styles.content} numberOfLines={4}>
-        {getPreviewText(note.content)}
-      </Text>
-      
-      <View style={styles.footer}>
-        <Text style={styles.date}>{formatDate(note.createdAt)}</Text>
-        <View style={styles.actions}>
-          <TouchableOpacity 
-            style={styles.actionButton} 
-            onPress={handleEdit}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Edit3 size={16} color="#8B5A3C" strokeWidth={1.5} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton} 
+
+        <View style={styles.accentRule} />
+
+        <Text style={styles.meta}>{formatMeta(note.createdAt, note.content)}</Text>
+
+        {note.content.trim().length > 0 && (
+          <Text style={styles.preview} numberOfLines={2}>
+            {getPreview(note.content)}
+          </Text>
+        )}
+
+        <View style={styles.divider} />
+
+        <View style={styles.footer}>
+          <Pressable
             onPress={handleShare}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.iconButton}
           >
-            <Share2 size={16} color="#8B5A3C" strokeWidth={1.5} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.actionButton} 
-            onPress={onDelete}
+            <Feather name="share" size={16} color={colors.meta} />
+          </Pressable>
+
+          <Pressable
+            onPress={handlePress}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Trash2 size={16} color="#FF6B6B" strokeWidth={1.5} />
-          </TouchableOpacity>
+            <Text style={styles.cta}>Read</Text>
+          </Pressable>
         </View>
-      </View>
-    </TouchableOpacity>
+      </Pressable>
+    </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E8E2D5',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
+const makeStyles = (colors: ThemeColors) =>
+  StyleSheet.create({
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: RADIUS.lg,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      marginBottom: SPACING.md,
+      marginHorizontal: SPACING.xl,
+      overflow: 'hidden',
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
-  },
-  title: {
-    flex: 1,
-    fontSize: 18,
-    fontFamily: 'LibreBaskerville-Bold',
-    color: '#2D2D2D',
-    lineHeight: 24,
-    marginRight: 12,
-  },
-  menuButton: {
-    padding: 4,
-  },
-  content: {
-    fontSize: 16,
-    fontFamily: 'LibreBaskerville-Regular',
-    color: '#5D5D5D',
-    lineHeight: 24,
-    marginBottom: 16,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  date: {
-    fontSize: 12,
-    fontFamily: 'LibreBaskerville-Regular',
-    color: '#000000FF',
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    padding: 8,
-  },
-});
+    pressable: {
+      padding: SPACING['2xl'],
+    },
+    title: {
+      fontFamily: FONTS.bold,
+      fontSize: 22,
+      lineHeight: 28,
+      letterSpacing: -0.3,
+      color: colors.ink,
+      marginBottom: SPACING.sm,
+    },
+    accentRule: {
+      width: 32,
+      height: 2,
+      backgroundColor: colors.accent,
+      marginBottom: SPACING.md,
+    },
+    meta: {
+      fontFamily: FONTS.regular,
+      fontSize: 13,
+      color: colors.meta,
+      marginBottom: SPACING.sm,
+    },
+    preview: {
+      fontFamily: FONTS.italic,
+      fontSize: 15,
+      lineHeight: 24,
+      color: colors.inkSecondary,
+      marginBottom: SPACING.lg,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: colors.hairline,
+      marginBottom: SPACING.lg,
+    },
+    footer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    iconButton: {
+      width: 32,
+      height: 32,
+      borderRadius: RADIUS.full,
+      borderWidth: 1,
+      borderColor: colors.hairline,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cta: {
+      fontFamily: FONTS.bold,
+      fontSize: 13,
+      letterSpacing: 0.5,
+      textTransform: 'uppercase',
+      color: colors.ink,
+    },
+  });
